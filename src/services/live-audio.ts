@@ -1,18 +1,25 @@
 function encodeBase64(bytes: Uint8Array): string {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  const parts: string[] = [];
-  for (let index = 0; index < bytes.length; index += 3) {
-    const first = bytes[index];
-    const hasSecond = index + 1 < bytes.length;
-    const hasThird = index + 2 < bytes.length;
-    const second = hasSecond ? bytes[index + 1] : 0;
-    const third = hasThird ? bytes[index + 2] : 0;
-    parts.push(alphabet[first >> 2], alphabet[((first & 3) << 4) | (second >> 4)],
-      hasSecond ? alphabet[((second & 15) << 2) | (third >> 6)] : '=', hasThird ? alphabet[third & 63] : '=');
+  const encodedParts: string[] = [];
+  const chunkSize = 12 * 1024;
+  for (let chunkStart = 0; chunkStart < bytes.length; chunkStart += chunkSize) {
+    const chunkEnd = Math.min(chunkStart + chunkSize, bytes.length);
+    const characters: string[] = [];
+    for (let index = chunkStart; index < chunkEnd; index += 3) {
+      const first = bytes[index];
+      const hasSecond = index + 1 < chunkEnd;
+      const hasThird = index + 2 < chunkEnd;
+      const second = hasSecond ? bytes[index + 1] : 0;
+      const third = hasThird ? bytes[index + 2] : 0;
+      characters.push(alphabet[first >> 2], alphabet[((first & 3) << 4) | (second >> 4)],
+        hasSecond ? alphabet[((second & 15) << 2) | (third >> 6)] : '=', hasThird ? alphabet[third & 63] : '=');
+    }
+    encodedParts.push(characters.join(''));
   }
-  return parts.join('');
+  return encodedParts.join('');
 }
 
+/** Combine signed 16-bit PCM chunks into a WAV base64 payload for the voice-turn API. */
 export function pcmChunksToWavBase64(chunks: Uint8Array[], sampleRate: number, channels = 1): string {
   const pcmLength = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
   const wav = new ArrayBuffer(44 + pcmLength);

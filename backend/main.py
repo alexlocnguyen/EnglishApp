@@ -1,3 +1,5 @@
+"""HTTP API for Elevate's conversation, feedback, speech, and vocabulary services."""
+
 from __future__ import annotations
 
 import base64
@@ -19,6 +21,10 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.concurrency import run_in_threadpool
+try:
+    from .auth_bff import router as auth_router
+except ImportError:
+    from auth_bff import router as auth_router
 
 
 class Settings(BaseSettings):
@@ -65,6 +71,7 @@ logger.addHandler(_log_handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
 app = FastAPI(title="Elevate English AI API", version="1.0.0")
+app.include_router(auth_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,
@@ -107,6 +114,10 @@ async def log_request_metrics(request: Request, call_next):
     return response
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
+SUPPORTED_AUDIO_MIME_TYPES = {
+    "audio/wav", "audio/x-wav", "audio/webm", "audio/ogg", "audio/mp4", "audio/m4a",
+    "audio/mpeg", "audio/mp3", "audio/aac", "audio/flac",
+}
 
 
 @lru_cache(maxsize=1)
@@ -143,14 +154,14 @@ class VoiceTurnRequest(BaseModel):
 
     audio_base64: str = Field(min_length=16, max_length=21_000_000)
     mime_type: str = Field(default="audio/wav", max_length=100)
-    topic: str = Field(default="Free conversation", max_length=300)
+    topic: str = Field(default="Free conversation", min_length=1, max_length=300)
 
     @field_validator("mime_type")
     @classmethod
     def validate_audio_mime(cls, value: str) -> str:
         mime = value.split(";", 1)[0].strip().lower()
-        if not mime.startswith("audio/"):
-            raise ValueError("mime_type must be an audio media type")
+        if mime not in SUPPORTED_AUDIO_MIME_TYPES:
+            raise ValueError("mime_type must be a supported audio media type")
         return mime
 
 
@@ -164,20 +175,20 @@ class ChatTurnRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     message: str = Field(min_length=1, max_length=3000)
-    topic: str = Field(default="Free conversation", max_length=300)
+    topic: str = Field(default="Free conversation", min_length=1, max_length=300)
 
 
 class FeedbackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    topic: str = Field(default="English speaking", max_length=300)
+    topic: str = Field(default="English speaking", min_length=1, max_length=300)
     transcript: str = Field(min_length=1, max_length=12000)
 
 
 class VocabularyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    topic: str = Field(default="English speaking", max_length=300)
+    topic: str = Field(default="English speaking", min_length=1, max_length=300)
     transcript: str = Field(min_length=1, max_length=12000)
 
 
@@ -204,6 +215,7 @@ class SpeakingFeedbackResponse(BaseModel):
 
 
 def require_api_key() -> str:
+    """Return the configured Gemini key or fail with a safe service error."""
     if not settings.gemini_api_key.strip():
         raise HTTPException(
             status_code=503,
@@ -241,6 +253,7 @@ async def gemini_generate(
     response_schema: dict[str, Any] | None = None,
     max_output_tokens: int = 900,
 ) -> dict[str, Any]:
+    """Call Gemini with timeout handling and structured provider latency logs."""
     api_key = require_api_key()
     config: dict[str, Any] = {"temperature": 0.4, "maxOutputTokens": max_output_tokens}
     if json_response:
@@ -291,6 +304,7 @@ async def gemini_generate(
 
 
 def decode_audio(audio_base64: str) -> bytes:
+    """Decode validated base64 audio and enforce the configured payload limit."""
     # Accept either raw base64 or a data URL from a browser recorder.
     encoded = audio_base64.split(",", 1)[1] if audio_base64.startswith("data:") and "," in audio_base64 else audio_base64
     try:
@@ -304,7 +318,8 @@ def decode_audio(audio_base64: str) -> bytes:
     return audio
 
 
-def audio_mime(audio: bytes, filename: str = "") -> str:
+def audio_mime(audio: bytes, filename: str = "") -> str | None:
+    """Infer a supported audio MIME type from common file signatures and names."""
     lower = filename.lower()
     if audio.startswith(b"RIFF") and audio[8:12] == b"WAVE":
         return "audio/wav"
@@ -314,10 +329,17 @@ def audio_mime(audio: bytes, filename: str = "") -> str:
         return "audio/mpeg"
     if lower.endswith((".m4a", ".mp4")) or audio[4:8] == b"ftyp":
         return "audio/mp4"
-    return "audio/webm" if lower.endswith(".webm") else "audio/wav"
+    if audio.startswith(b"\x1a\x45\xdf\xa3") or lower.endswith(".webm"):
+        return "audio/webm"
+    if audio.startswith(b"fLaC") or lower.endswith(".flac"):
+        return "audio/flac"
+    if lower.endswith(".aac"):
+        return "audio/aac"
+    return None
 
 
 def audio_part(audio: bytes, mime: str) -> dict[str, Any]:
+    """Create the Gemini inline audio part for an encoded recording."""
     return {"inlineData": {"mimeType": mime, "data": base64.b64encode(audio).decode("ascii")}}
 
 
@@ -333,11 +355,13 @@ def _list_of_strings(value: Any) -> list[str]:
 
 @app.get("/")
 async def root() -> dict[str, str]:
+    """Expose API discovery links for local development and health checks."""
     return {"name": "Elevate English AI API", "docs": "/docs", "health": "/api/health"}
 
 
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
+    """Report service readiness and the configured AI/TTS providers."""
     return {
         "ok": True,
         "provider": "Google Gemini API",
@@ -350,6 +374,7 @@ async def health() -> dict[str, Any]:
 
 @app.post("/api/voice-turn")
 async def voice_turn(request: VoiceTurnRequest) -> dict[str, Any]:
+    """Transcribe an audio turn and generate a conversational reply and suggestions."""
     audio = decode_audio(request.audio_base64)
     prompt = f"""You are a friendly, patient English speaking partner for a Vietnamese learner.
 Topic: {request.topic}
@@ -394,6 +419,7 @@ Return ONLY JSON with keys transcript, translation, reply, suggestions (array of
 
 @app.post("/api/chat-turn")
 async def chat_turn(request: ChatTurnRequest) -> dict[str, Any]:
+    """Generate a conversational response for a typed learner message."""
     prompt = f"""You are a friendly, patient English conversation partner for a Vietnamese learner.
 Topic: {request.topic}
 Learner message (may be Vietnamese or English): {request.message}
@@ -412,6 +438,7 @@ Return ONLY JSON with keys transcript, translation, reply, suggestions (array of
 
 @app.post("/api/ai/speaking-feedback")
 async def speaking_feedback(request: FeedbackRequest) -> dict[str, Any]:
+    """Return validated grammar and actionable feedback for a practice transcript."""
     prompt = f"""Evaluate this English practice transcript for a Vietnamese learner.
 Topic: {request.topic}
 Transcript: {request.transcript}
@@ -511,6 +538,7 @@ def _minhqnd_vietnamese_definition(entry: dict[str, Any]) -> tuple[str, str] | N
 
 @app.post("/api/ai/topic-vocabulary")
 async def topic_vocabulary(request: VocabularyRequest) -> dict[str, Any]:
+    """Return topic vocabulary candidates verified against the minhqnd dictionary."""
     prompt = f"""Choose useful vocabulary for a Vietnamese learner based on this English practice.
 Topic: {request.topic}
 Learner transcript: {request.transcript}
@@ -526,10 +554,7 @@ Return only the requested structured data."""
         "required": ["level", "verbs", "phrases"],
     }
     generated = await gemini_generate([{"text": prompt}], response_schema=schema, max_output_tokens=700)
-    try:
-        candidates = _parse_json(_json_text(generated))
-    except HTTPException:
-        raise
+    candidates = _parse_json(_json_text(generated))
 
     validated_verbs: list[dict[str, str]] = []
     for candidate in candidates.get("verbs", []) if isinstance(candidates.get("verbs"), list) else []:
@@ -577,6 +602,7 @@ Return only the requested structured data."""
 
 @app.post("/api/translate")
 async def translate(request: TextRequest) -> dict[str, str]:
+    """Translate English text into natural Vietnamese."""
     prompt = "Translate the following English text to natural Vietnamese. Return only the translation, preserving meaning and tone: " + request.text
     response = await gemini_generate([{"text": prompt}], json_response=False)
     return {"translation": _json_text(response)}
@@ -587,6 +613,7 @@ async def analyze_audio(
     file: UploadFile = File(...),
     target_sentence: str = Form(default="", max_length=1000),
 ) -> dict[str, Any]:
+    """Transcribe uploaded audio and estimate overall pronunciation clarity."""
     audio = await file.read(settings.max_audio_mb * 1024 * 1024 + 1)
     if not audio:
         raise HTTPException(status_code=400, detail="Tệp audio trống.")
@@ -595,9 +622,11 @@ async def analyze_audio(
     target = target_sentence.strip()[:1000]
     prompt = f"""Listen to the English learner recording for the practice topic: {target or '(free conversation)'}.
 Transcribe only English speech that is actually audible. Give an overall, approximate assessment of how clear and understandable the learner's English pronunciation sounds. This is not certified phoneme scoring. Do not label Vietnamese words as English pronunciation errors. If the clip has no clearly audible English, say that in Vietnamese and return a score of 0. Keep feedback concise. Return an empty words_analysis array; do not evaluate individual words."""
-    mime_type = file.content_type or ""
-    if not mime_type.startswith("audio/"):
-        mime_type = audio_mime(audio, file.filename or "")
+    mime_type = (file.content_type or "").split(";", 1)[0].strip().lower()
+    if mime_type in {"", "application/octet-stream"}:
+        mime_type = audio_mime(audio, file.filename or "") or ""
+    if mime_type not in SUPPORTED_AUDIO_MIME_TYPES:
+        raise HTTPException(status_code=415, detail="Tệp tải lên phải có định dạng audio được hỗ trợ.")
     response_schema = {
         "type": "object",
         "properties": {
@@ -648,6 +677,7 @@ Transcribe only English speech that is actually audible. Give an overall, approx
 
 @app.get("/api/speech")
 async def speech(text: str = Query(min_length=1, max_length=500)) -> Response:
+    """Synthesize a short English sentence to WAV audio with Kokoro."""
     try:
         async with kokoro_lock:
             audio_bytes = await run_in_threadpool(generate_kokoro_wav, text)

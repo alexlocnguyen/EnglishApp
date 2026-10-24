@@ -4,8 +4,6 @@ const testUser: AuthUser = {
   uid: 'learner-1',
   email: 'learner@example.com',
   displayName: 'Learner',
-  idToken: 'id-token',
-  refreshToken: 'refresh-token',
 };
 
 function makeProvider(): AuthProvider {

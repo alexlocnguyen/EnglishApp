@@ -80,6 +80,19 @@ def test_voice_turn_rejects_non_audio_mime():
         main.VoiceTurnRequest.model_validate({"audio_base64": "AAAAAAAAAAAAAAAA", "mime_type": "text/plain"})
 
 
+def test_voice_turn_rejects_unknown_audio_mime():
+    with pytest.raises(ValidationError):
+        main.VoiceTurnRequest.model_validate({"audio_base64": "AAAAAAAAAAAAAAAA", "mime_type": "audio/unknown"})
+
+
+def test_audio_mime_rejects_unknown_octet_stream_payload():
+    assert main.audio_mime(b"not an audio file", "upload.bin") is None
+
+
+def test_audio_mime_detects_wav_from_file_signature():
+    assert main.audio_mime(b"RIFF" + b"\x00" * 4 + b"WAVE") == "audio/wav"
+
+
 @pytest.mark.parametrize(
     "model,payload",
     [

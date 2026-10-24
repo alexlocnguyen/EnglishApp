@@ -63,9 +63,9 @@ export default function HomeScreen() {
   const [authFlowVisible, setAuthFlowVisible] = useState(false);
   const [profileView, setProfileView] = useState<'overview' | 'personal' | null>(null);
   const [profileAnswers, setProfileAnswers] = useState<SurveyAnswers>({});
-  const [firebaseUser, setFirebaseUser] = useState<AuthUser | null>(null);
+  const [signedInUser, setSignedInUser] = useState<AuthUser | null>(null);
 
-  useEffect(() => authService.observeUser(setFirebaseUser), []);
+  useEffect(() => authService.observeUser(setSignedInUser), []);
 
   function markAuthenticated(_provider: LoginProvider, answers: SurveyAnswers) {
     setProfileAnswers(answers);
@@ -90,13 +90,13 @@ export default function HomeScreen() {
         <View style={styles.page}>
           <View style={styles.topBar}>
             <Text accessibilityLabel="Elevate" style={styles.brand}>Elevate</Text>
-            {firebaseUser ? (
+            {signedInUser ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Mở hồ sơ người dùng"
                 onPress={() => setProfileView('overview')}
                 style={({ pressed }) => [styles.avatarButton, pressed && styles.footerPressed]}>
-                <Text style={styles.avatarInitial}>{(firebaseUser.displayName || firebaseUser.email || 'E').charAt(0).toUpperCase()}</Text>
+                <Text style={styles.avatarInitial}>{(signedInUser.displayName || signedInUser.email || 'E').charAt(0).toUpperCase()}</Text>
               </Pressable>
             ) : (
               <Pressable
@@ -168,7 +168,7 @@ export default function HomeScreen() {
         onAuthenticated={markAuthenticated}
         onFinish={finishSignIn}
         onStartLesson={finishAndStartLesson}
-        initialProvider={firebaseUser ? 'Email' : null}
+        initialProvider={signedInUser ? 'Email' : null}
         initialAnswers={profileAnswers}
         visible={authFlowVisible}
       />
@@ -183,11 +183,11 @@ export default function HomeScreen() {
             <View accessibilityRole="alert" style={styles.infoCard}>
               <View style={styles.profileHeading}>
                 <View style={styles.profileAvatar}>
-                  <Text style={styles.profileAvatarInitial}>{(firebaseUser?.displayName || firebaseUser?.email || 'E').charAt(0).toUpperCase()}</Text>
+                  <Text style={styles.profileAvatarInitial}>{(signedInUser?.displayName || signedInUser?.email || 'E').charAt(0).toUpperCase()}</Text>
                 </View>
                 <View style={styles.profileIdentity}>
-                  <Text style={styles.profileName}>{firebaseUser?.displayName || firebaseUser?.email}</Text>
-                  <Text style={styles.profileProvider}>Tài khoản Firebase</Text>
+                  <Text style={styles.profileName}>{signedInUser?.displayName || signedInUser?.email}</Text>
+                  <Text style={styles.profileProvider}>Tài khoản Elevate</Text>
                 </View>
               </View>
               <Pressable
@@ -226,7 +226,7 @@ export default function HomeScreen() {
               <Text style={styles.infoTitle}>Thông tin cá nhân</Text>
               <View style={styles.personalInfoRow}>
                 <Text style={styles.personalInfoLabel}>Tên hiển thị</Text>
-                <Text style={styles.personalInfoValue}>{firebaseUser?.displayName || firebaseUser?.email}</Text>
+                <Text style={styles.personalInfoValue}>{signedInUser?.displayName || signedInUser?.email}</Text>
               </View>
               <View style={styles.personalInfoRow}>
                 <Text style={styles.personalInfoLabel}>Đăng nhập bằng</Text>

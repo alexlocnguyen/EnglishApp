@@ -1,3 +1,5 @@
+import { requestJson } from './api-errors';
+
 export type AiFeedbackItem = {
   title: string;
   score?: string;
@@ -32,6 +34,10 @@ function parseFeedback(payload: unknown): AiSpeakingFeedback {
       })
     : [];
 
+  if (feedback.length === 0) {
+    throw new Error('AI chưa trả về nội dung nhận xét có thể sử dụng.');
+  }
+
   const summary = data.summary ?? data.overall_feedback ?? data.overallFeedback;
   return {
     feedback,
@@ -39,27 +45,28 @@ function parseFeedback(payload: unknown): AiSpeakingFeedback {
   };
 }
 
+/** Request structured grammar and improvement feedback for a completed practice transcript. */
 export async function getAiSpeakingFeedback(topic: string, transcript: string): Promise<AiSpeakingFeedback> {
+  if (!topic.trim() || !transcript.trim()) {
+    throw new Error('Cần có chủ đề và nội dung buổi luyện tập để phân tích.');
+  }
   if (!API_BASE_URL) {
     throw new Error('Chưa cấu hình EXPO_PUBLIC_API_URL để kết nối backend AI.');
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE_URL}${FEEDBACK_PATH.startsWith('/') ? FEEDBACK_PATH : `/${FEEDBACK_PATH}`}`, {
+  const payload = await requestJson<unknown>(
+    `${API_BASE_URL}${FEEDBACK_PATH.startsWith('/') ? FEEDBACK_PATH : `/${FEEDBACK_PATH}`}`,
+    {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ topic, transcript }),
-    });
-  } catch {
-    throw new Error('Không thể kết nối backend. Hãy kiểm tra mạng và địa chỉ API.');
-  }
-
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message = isRecord(payload) && typeof payload.message === 'string' ? payload.message : undefined;
-    throw new Error(message ?? `Backend AI trả về lỗi (${response.status}).`);
-  }
+    },
+    {
+      networkMessage: 'Không thể kết nối backend. Hãy kiểm tra mạng và địa chỉ API.',
+      httpErrorMessage: 'Backend AI trả về lỗi',
+      invalidResponseMessage: 'Backend AI trả về dữ liệu không đúng định dạng.',
+    },
+  );
 
   return parseFeedback(payload);
 }

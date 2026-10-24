@@ -36,6 +36,10 @@ const COLORS = {
 
 type LiveTurnItem = LiveVoiceTurn & { id: string; status: 'done' | 'error'; displayText?: string; error?: string };
 
+function createPracticeSessionId(): string {
+  return `practice-${Date.now()}`;
+}
+
 export default function SpeakingScreen() {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const patternColumns = Math.max(8, Math.ceil(Math.min(viewportWidth, 650) / 34));
@@ -54,6 +58,7 @@ export default function SpeakingScreen() {
   const turnsRef = useRef<LiveTurnItem[]>([]);
   const processingQueue = useRef<Promise<void>>(Promise.resolve());
   const submitSegment = useRef<(chunks: Uint8Array[], sampleRate: number, channels: number) => void>(() => undefined);
+  const playSuggestedSentenceRef = useRef<(text: string) => Promise<void>>(async () => undefined);
   const webRecorder = useRef<MediaRecorder | null>(null);
   const webStream = useRef<MediaStream | null>(null);
   const webChunks = useRef<Blob[]>([]);
@@ -260,23 +265,28 @@ export default function SpeakingScreen() {
   const processVoiceSegment = useCallback((chunks: Uint8Array[], sampleRate: number, channels: number) => {
     if (Platform.OS === 'web' || chunks.length === 0) return;
     const id = String(++turnId.current);
-    const audioBase64 = pcmChunksToWavBase64(chunks, sampleRate, channels);
-    processingQueue.current = processingQueue.current.then(async () => {
-      try {
-        const result = await processLiveVoiceTurn(audioBase64, topic ?? 'Luyện nói tự do');
+    processingQueue.current = processingQueue.current
+      .then(() => new Promise<void>((resolve) => setTimeout(resolve, 0)))
+      .then(async () => {
         if (!mounted.current) return;
-        if (!result.transcript) return;
-        turnsRef.current = [...turnsRef.current, { id, ...result, status: 'done' }];
-        setLiveTurns(turnsRef.current);
-        if (result.reply) void playSuggestedSentence(result.reply);
-      } catch (error) {
-        if (!mounted.current) return;
-        turnsRef.current = [...turnsRef.current, { id, status: 'error', transcript: '', translation: '', reply: '', suggestions: [], feedback: '', error: error instanceof Error ? error.message : 'AI chưa xử lý được câu này.' }];
-        setLiveTurns(turnsRef.current);
-      }
-    });
+        try {
+          const audioBase64 = pcmChunksToWavBase64(chunks, sampleRate, channels);
+          const result = await processLiveVoiceTurn(audioBase64, topic ?? 'Luyện nói tự do');
+          if (!mounted.current) return;
+          if (!result.transcript) return;
+          turnsRef.current = [...turnsRef.current, { id, ...result, status: 'done' }];
+          setLiveTurns(turnsRef.current);
+          if (result.reply) void playSuggestedSentenceRef.current(result.reply);
+        } catch (error) {
+          if (!mounted.current) return;
+          turnsRef.current = [...turnsRef.current, { id, status: 'error', transcript: '', translation: '', reply: '', suggestions: [], feedback: '', error: error instanceof Error ? error.message : 'AI chưa xử lý được câu này.' }];
+          setLiveTurns(turnsRef.current);
+        }
+      });
   }, [topic]);
-  submitSegment.current = processVoiceSegment;
+  useEffect(() => {
+    submitSegment.current = processVoiceSegment;
+  }, [processVoiceSegment]);
 
   function flushCurrentUtterance() {
     if (!utteranceActive.current) return;
@@ -438,7 +448,7 @@ export default function SpeakingScreen() {
           return;
         }
       }
-      const sessionId = `practice-${Date.now()}`;
+      const sessionId = createPracticeSessionId();
       await savePracticeSession({
         id: sessionId,
         topic: topic ?? 'Luyện nói tự do',
@@ -536,6 +546,9 @@ export default function SpeakingScreen() {
   async function playSuggestedSentence(text: string) {
     await playAiSpeech(text);
   }
+  useEffect(() => {
+    playSuggestedSentenceRef.current = playSuggestedSentence;
+  });
 
   function speakWithDeviceVoice(text: string, status: string) {
     pendingSpeechFallback.current = null;

@@ -1,6 +1,6 @@
 # Elevate English AI backend
 
-FastAPI backend dùng Gemini API cho hội thoại từ audio, góp ý bài nói và dịch tiếng Anh sang tiếng Việt. Giọng đọc mẫu câu và câu phản hồi được tạo bằng Kokoro chạy cục bộ trên backend. Các buổi học, transcript và thẻ ôn tập được app lưu ở thiết bị; backend mẫu này không ghi âm hay lưu hội thoại vào database.
+FastAPI backend dùng Gemini API cho hội thoại từ audio, góp ý bài nói và dịch tiếng Anh sang tiếng Việt. Giọng đọc mẫu câu và câu phản hồi được tạo bằng Kokoro chạy cục bộ trên backend. PostgreSQL lưu chương trình học, tiến độ, từ vựng cá nhân, phiên luyện, phản hồi, thông báo và log; app vẫn giữ bản cục bộ để dùng khi offline.
 
 ## 1. Tạo API key miễn phí
 
@@ -25,6 +25,28 @@ Copy-Item .env.example .env
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+## PostgreSQL và tính năng học tập
+
+Tạo database PostgreSQL, điền `DATABASE_URL` trong `backend/.env`, rồi chạy schema/seed từ thư mục gốc dự án:
+
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:password@localhost:5432/elevate_english"
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f .\backend\sql\postgres_schema.sql
+```
+
+Schema có thể chạy trên database mới hoặc nâng cấp bản nháp practice-only trước đó. Nó tạo vai trò `learner`/`admin`, chủ đề và bài học mẫu cùng từ vựng khởi đầu. Mật khẩu vẫn do Firebase quản lý; app_users chỉ lưu Firebase UID, email và tên hiển thị.
+
+```dotenv
+DATABASE_URL=postgresql://postgres:password@localhost:5432/elevate_english
+INITIAL_ADMIN_EMAILS=your-login-email@example.com
+# Đặt đường dẫn này lên volume bền vững khi triển khai; mặc định là backend/data/audio
+AUDIO_STORAGE_DIR=
+```
+
+Đăng nhập bằng email trong `INITIAL_ADMIN_EMAILS` một lần để nhận quyền quản trị. Màn hình **Quản trị** cho phép thêm chủ đề, bài học, từ vựng và đổi vai trò tài khoản. Màn hình **Chương trình học** cho phép học viên luyện theo bài, đánh dấu hoàn thành và theo dõi tiến độ. Lịch sử/ôn tập/từ vựng cá nhân được đồng bộ khi backend và PostgreSQL sẵn sàng; nếu chưa sẵn sàng app vẫn lưu bản cục bộ.
+
+Nhắc học dùng thông báo cục bộ trên thiết bị, sau khi người dùng cấp quyền. Remote push chưa được cấu hình; bảng `notifications` hiện nhận sự kiện trong app, ví dụ thông báo khi hoàn thành bài học. Bản ghi audio được lưu dưới `AUDIO_STORAGE_DIR`, vì vậy production cần gắn thư mục này vào persistent volume hoặc thay thế bằng object storage.
+
 ## Kiểm thử
 
 Trong môi trường Python tương thích với Kokoro, cài `requirements-dev.txt` rồi chạy `python -m pytest`.
@@ -45,4 +67,4 @@ Mở `http://localhost:8000/docs` để xem API. Điện thoại và máy tính 
 
 ## Lưu ý về dữ liệu
 
-Audio/transcript được gửi tới Gemini để tạo phản hồi; backend này không lưu nội dung vào ổ đĩa hay database. Hãy đọc điều khoản dữ liệu của nhà cung cấp trước khi cho người dùng thật sử dụng, đặc biệt nếu app phục vụ trẻ em hoặc xử lý dữ liệu nhạy cảm.
+Audio dùng để tạo phản hồi được gửi tới Gemini. Audio bản luyện được giữ riêng trong `AUDIO_STORAGE_DIR` và metadata được ghi vào PostgreSQL. Hãy cấu hình lưu trữ bền vững, chính sách xóa/giữ dữ liệu và quyền truy cập phù hợp trước khi triển khai cho người dùng thật.

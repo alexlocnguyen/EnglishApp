@@ -3,17 +3,19 @@ import { useFocusEffect, router } from 'expo-router';
 import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
 import { PageFrame, pageStyles, palette } from '../components/PageFrame';
 import { getReviewCards, markReviewCardDone, type ReviewCard } from '../services/practice-history';
+import { getSavedVocabulary, markVocabularyKnown, type SavedVocabulary } from '../services/learning-api';
 
 export default function ReviewScreen() {
   const [cards, setCards] = useState<ReviewCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCard, setSelectedCard] = useState<ReviewCard | null>(null);
   const [error, setError] = useState('');
+  const [vocabulary, setVocabulary] = useState<SavedVocabulary[]>([]);
 
   const refresh = useCallback(() => {
     setLoading(true);
-    void getReviewCards()
-      .then(setCards)
+    void Promise.all([getReviewCards(), getSavedVocabulary()])
+      .then(([reviewCards, savedVocabulary]) => { setCards(reviewCards); setVocabulary(savedVocabulary); })
       .catch(() => setError('Chưa tải được nội dung ôn tập.'))
       .finally(() => setLoading(false));
   }, []);
@@ -44,6 +46,17 @@ export default function ReviewScreen() {
       <View style={[pageStyles.card, { backgroundColor: '#A8D65A16' }]}>
         <Text style={pageStyles.cardTitle}>TIẾN ĐỘ ÔN TẬP</Text>
         <Text style={pageStyles.bodyText}>{doneCount} / {cards.length} thẻ đã xem</Text>
+      </View>
+
+      <View style={pageStyles.card}>
+        <Text style={pageStyles.cardTitle}>TỪ VỰNG CỦA TÔI · {vocabulary.length}</Text>
+        {vocabulary.length === 0 ? <Text style={pageStyles.secondaryText}>Lưu từ và cụm từ ở màn hình Từ mới sau buổi học để ôn lại tại đây.</Text> : vocabulary.map((item) => (
+          <View key={item.user_vocabulary_id} style={{ borderTopColor: '#FFFFFF20', borderTopWidth: 1, marginTop: 10, paddingTop: 10 }}>
+            <Text style={pageStyles.bodyText}>{item.word}{item.status === 'known' ? '  ✓' : ''}</Text>
+            <Text style={pageStyles.secondaryText}>{item.definition}{item.example ? ` · “${item.example}”` : ''}</Text>
+            {item.status !== 'known' ? <Pressable accessibilityRole="button" onPress={() => void markVocabularyKnown(item.user_vocabulary_id).then(() => setVocabulary((current) => current.map((word) => word.user_vocabulary_id === item.user_vocabulary_id ? { ...word, status: 'known' } : word)))} style={[pageStyles.action, { marginTop: 8 }]}><Text style={pageStyles.actionText}>Đã thuộc từ này</Text></Pressable> : null}
+          </View>
+        ))}
       </View>
 
       {loading ? (

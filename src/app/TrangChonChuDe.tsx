@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { Link, router } from 'expo-router';
+import { Link, router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
   Pressable,
@@ -33,14 +33,17 @@ const TOPICS = [
 ];
 
 export default function TopicSelectionScreen() {
+  const params = useLocalSearchParams<{ topic?: string; prompt?: string; lessonId?: string }>();
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
-  const selectedTopic = TOPICS.find((topic) => topic.id === selectedTopicId);
+  const selectedTopic = params.topic
+    ? { vi: params.topic, en: params.prompt ?? params.topic }
+    : TOPICS.find((topic) => topic.id === selectedTopicId);
 
   function handleContinue() {
     if (!selectedTopic) return;
     router.push({
       pathname: '/TrangLuyenNoi',
-      params: { topic: selectedTopic.vi, prompt: selectedTopic.en },
+      params: { topic: selectedTopic.vi, prompt: selectedTopic.en, ...(params.lessonId ? { lessonId: params.lessonId } : {}) },
     });
   }
 

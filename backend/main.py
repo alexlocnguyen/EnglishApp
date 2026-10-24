@@ -23,8 +23,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.concurrency import run_in_threadpool
 try:
     from .auth_bff import router as auth_router
+    from .learning_api import router as learning_router
 except ImportError:
     from auth_bff import router as auth_router
+    from learning_api import router as learning_router
 
 
 class Settings(BaseSettings):
@@ -72,11 +74,12 @@ logger.setLevel(logging.INFO)
 logger.propagate = False
 app = FastAPI(title="Elevate English AI API", version="1.0.0")
 app.include_router(auth_router)
+app.include_router(learning_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,
     allow_credentials="*" not in settings.origins,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 

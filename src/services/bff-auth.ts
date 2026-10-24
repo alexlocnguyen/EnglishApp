@@ -57,6 +57,25 @@ async function request(path: string, body?: Record<string, string>, method = 'PO
   return data;
 }
 
+export async function requestLearningApi<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (Platform.OS !== 'web' && !sessionToken) {
+    restorePromise ??= restoreSession();
+    await restorePromise;
+  }
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-Elevate-Client': Platform.OS === 'web' ? 'web' : 'native',
+    ...(init.body && !(typeof FormData !== 'undefined' && init.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
+    ...(init.headers as Record<string, string> | undefined),
+  };
+  if (Platform.OS !== 'web' && sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+  return requestJson<T>(`${getApiBaseUrl()}/api/learning${path}`, {
+    ...init,
+    headers,
+    credentials: Platform.OS === 'web' ? 'include' : 'omit',
+  }, { networkMessage: 'NETWORK_REQUEST_FAILED', httpErrorMessage: 'LEARNING_REQUEST_FAILED' });
+}
+
 async function acceptSession(data: AuthResponse) {
   if (!data.user) throw new Error('Backend không trả về thông tin tài khoản.');
   if (Platform.OS !== 'web') {

@@ -31,7 +31,9 @@ const MENU_ITEMS: MenuItem[] = [
     href: '/TrangChonChuDe' as Href,
   },
   { label: 'Lịch sử', width: '88%', color: COLORS.secondary, href: '/TrangLichSu' as Href },
+  { label: 'Chương trình học', width: '82%', color: COLORS.secondary, href: '/TrangBaiHoc' as Href },
   { label: 'Ôn tập', width: '76%', color: COLORS.secondary, href: '/TrangTuVung' as Href },
+  { label: 'Quản trị', width: '70%', color: COLORS.secondary, href: '/TrangQuanTri' as Href },
   { label: 'Cài đặt', width: '64%', color: COLORS.secondary, href: '/TrangCaiDat' as Href },
 ];
 

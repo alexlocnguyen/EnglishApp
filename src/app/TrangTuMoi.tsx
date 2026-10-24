@@ -4,6 +4,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { PageFrame, pageStyles, palette } from '../components/PageFrame';
 import { getTopicVocabulary, type TopicVocabulary } from '../services/backend-ai';
 import { getPracticeSessions } from '../services/practice-history';
+import { saveVocabulary } from '../services/learning-api';
 
 function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
@@ -17,6 +18,7 @@ export default function NewVocabularyScreen() {
   const [vocabulary, setVocabulary] = useState<TopicVocabulary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [savedWords, setSavedWords] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +72,9 @@ export default function NewVocabularyScreen() {
               <Text style={pageStyles.bodyText}>{item.definition}</Text>
               {item.example ? <Text style={pageStyles.secondaryText}>Ví dụ từ điển: “{item.example}”</Text> : null}
               {item.sourceUrl ? <Pressable onPress={() => void Linking.openURL(item.sourceUrl!)}><Text style={[pageStyles.secondaryText, { color: palette.green, marginTop: 8 }]}>Nguồn từ điển minhqnd ↗</Text></Pressable> : null}
+              <Pressable accessibilityRole="button" onPress={() => void saveVocabulary({ word: item.word, definition: item.definition, example: item.example }).then(() => setSavedWords((current) => [...current, item.word]))} style={pageStyles.action}>
+                <Text style={pageStyles.actionText}>{savedWords.includes(item.word) ? 'Đã lưu vào từ vựng của tôi' : 'Lưu vào từ vựng của tôi'}</Text>
+              </Pressable>
             </View>
           ))}
 
@@ -78,6 +83,9 @@ export default function NewVocabularyScreen() {
             <Text style={pageStyles.bodyText}>{vocabulary.phrase.definition}</Text>
             {vocabulary.phrase.example ? <Text style={pageStyles.secondaryText}>Ví dụ từ điển: “{vocabulary.phrase.example}”</Text> : null}
             {vocabulary.phrase.sourceUrl ? <Pressable onPress={() => void Linking.openURL(vocabulary.phrase.sourceUrl!)}><Text style={[pageStyles.secondaryText, { color: palette.green, marginTop: 8 }]}>Nguồn từ điển minhqnd ↗</Text></Pressable> : null}
+            <Pressable accessibilityRole="button" onPress={() => void saveVocabulary({ word: vocabulary.phrase.phrase, definition: vocabulary.phrase.definition, example: vocabulary.phrase.example }).then(() => setSavedWords((current) => [...current, vocabulary.phrase.phrase]))} style={pageStyles.action}>
+              <Text style={pageStyles.actionText}>{savedWords.includes(vocabulary.phrase.phrase) ? 'Đã lưu vào từ vựng của tôi' : 'Lưu vào từ vựng của tôi'}</Text>
+            </Pressable>
           </View>
 
           <Text style={[pageStyles.secondaryText, { marginBottom: 10 }]}>

@@ -132,6 +132,21 @@ def _session_credential(request: Request) -> str | None:
     return request.cookies.get(COOKIE_NAME)
 
 
+def current_user(request: Request) -> dict[str, str]:
+    """Resolve the BFF session into a stable Firebase identity for API routes."""
+    token = _session_credential(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="AUTH_SESSION_REQUIRED")
+    with _database() as connection:
+        row = connection.execute(
+            "SELECT uid,email,display_name,created_at FROM auth_sessions WHERE token_hash = ?",
+            (_token_hash(token),),
+        ).fetchone()
+    if row is None or row["created_at"] + SESSION_MAX_AGE <= time.time():
+        raise HTTPException(status_code=401, detail="AUTH_SESSION_EXPIRED")
+    return {"uid": row["uid"], "email": row["email"], "displayName": row["display_name"]}
+
+
 def _check_browser_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     allowed = {item.strip() for item in bff_settings.cors_origins.split(",")}
@@ -199,7 +214,7 @@ def _set_session_response(response: Response, request: Request, token: str, user
         secure = bff_settings.app_env.lower() == "production" or same_site == "none"
         response.set_cookie(
             COOKIE_NAME, token, httponly=True, secure=secure, samesite=same_site,
-            max_age=SESSION_MAX_AGE, path="/api/auth",
+            max_age=SESSION_MAX_AGE, path="/api",
         )
     else:
         result["session_token"] = token
@@ -298,5 +313,5 @@ async def logout(request: Request, response: Response) -> dict[str, bool]:
         with _database() as connection:
             connection.execute("DELETE FROM auth_sessions WHERE token_hash = ?", (_token_hash(token),))
     same_site = bff_settings.bff_cookie_samesite.lower()
-    response.delete_cookie(COOKIE_NAME, path="/api/auth", httponly=True, secure=bff_settings.app_env.lower() == "production" or same_site == "none", samesite=same_site)
+    response.delete_cookie(COOKIE_NAME, path="/api", httponly=True, secure=bff_settings.app_env.lower() == "production" or same_site == "none", samesite=same_site)
     return {"logged_out": True}

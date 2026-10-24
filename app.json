@@ -40,7 +40,8 @@
           "microphonePermission": "ElevateEnglish cần quyền microphone để ghi âm và phân tích phần luyện nói."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { requestLearningApi } from './bff-auth';
 
 const SESSIONS_KEY = 'elevate.practice.sessions.v1';
 const REVIEWED_KEY = 'elevate.practice.reviewed.v1';
@@ -11,6 +12,7 @@ export type PracticeTurn = {
   feedback?: string;
   pronunciationFeedback?: string;
   hasAudio?: boolean;
+  audioBase64?: string;
 };
 
 export type PracticeFeedbackItem = {
@@ -28,6 +30,7 @@ export type PracticeSession = {
   turns: PracticeTurn[];
   summary?: string;
   feedback?: PracticeFeedbackItem[];
+  lessonId?: number;
 };
 
 export type ReviewCard = {
@@ -53,13 +56,46 @@ async function readSessions(): Promise<PracticeSession[]> {
 }
 
 export async function getPracticeSessions(): Promise<PracticeSession[]> {
-  return (await readSessions()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const local = await readSessions();
+  try {
+    const remote = await requestLearningApi<PracticeSession[]>('/sessions');
+    const merged = new Map(local.map((session) => [session.id, session]));
+    for (const session of remote) merged.set(session.id, session);
+    const sessions = [...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
+    await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.slice(0, 50)));
+    return sessions;
+  } catch {
+    return local.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
 }
 
 export async function savePracticeSession(session: PracticeSession): Promise<void> {
   const sessions = await readSessions();
-  const next = [session, ...sessions.filter((item) => item.id !== session.id)].slice(0, 50);
+  const localSession: PracticeSession = { ...session, turns: session.turns.map((turn) => {
+    const safeTurn = { ...turn };
+    delete safeTurn.audioBase64;
+    return safeTurn;
+  }) };
+  const next = [localSession, ...sessions.filter((item) => item.id !== session.id)].slice(0, 50);
   await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(next));
+  await syncPracticeSession(session).catch(() => undefined);
+}
+
+async function syncPracticeSession(session: PracticeSession): Promise<void> {
+  await requestLearningApi('/sessions', {
+    method: 'POST',
+    body: JSON.stringify({
+      client_session_id: session.id,
+      topic: session.topic,
+      lesson_id: session.lessonId ?? null,
+      created_at: session.createdAt,
+      duration_seconds: session.durationSeconds,
+      transcript: session.transcript,
+      turns: session.turns,
+      summary: session.summary ?? null,
+      feedback: session.feedback ?? [],
+    }),
+  });
 }
 
 export async function updatePracticeSession(
@@ -69,6 +105,8 @@ export async function updatePracticeSession(
   const sessions = await readSessions();
   const next = sessions.map((session) => session.id === id ? { ...session, ...update } : session);
   await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(next));
+  const updated = next.find((session) => session.id === id);
+  if (updated) await syncPracticeSession(updated).catch(() => undefined);
 }
 
 export async function getReviewCards(): Promise<ReviewCard[]> {
@@ -124,7 +162,14 @@ export async function getReviewCards(): Promise<ReviewCard[]> {
       }
     }
   }
-  return cards;
+  try {
+    const remote = await requestLearningApi<ReviewCard[]>('/review-cards');
+    const merged = new Map(cards.map((card) => [card.id, card]));
+    for (const card of remote) merged.set(card.id, card);
+    return [...merged.values()];
+  } catch {
+    return cards;
+  }
 }
 
 export async function markReviewCardDone(id: string): Promise<void> {
@@ -138,4 +183,5 @@ export async function markReviewCardDone(id: string): Promise<void> {
   }
   if (!ids.includes(id)) ids.push(id);
   await AsyncStorage.setItem(REVIEWED_KEY, JSON.stringify(ids));
+  if (/^\d+$/.test(id)) await requestLearningApi(`/review-cards/${id}/reviewed`, { method: 'POST' }).catch(() => undefined);
 }

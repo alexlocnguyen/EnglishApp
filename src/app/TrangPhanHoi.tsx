@@ -6,6 +6,7 @@ import { MorphIcon } from 'morphicons/react-native';
 import { getAiSpeakingFeedback, type AiSpeakingFeedback } from '../services/ai-feedback';
 import { analyzeSpeakingAudio } from '../services/backend-ai';
 import { getPracticeSessions, updatePracticeSession } from '../services/practice-history';
+import { savePronunciationFeedback, uploadPracticeRecording } from '../services/learning-api';
 import { PageFrame, pageStyles, palette } from '../components/PageFrame';
 
 function firstParam(value: string | string[] | undefined): string {
@@ -94,6 +95,12 @@ export default function FeedbackScreen() {
           if (!analyzedTranscript) analyzedTranscript = audioAnalysis.transcribed_text;
         } catch (audioError) {
           setPronunciationError(audioError instanceof Error ? audioError.message : 'Chưa phân tích được bản thu âm.');
+        }
+      }
+      if (sessionId && audioUri) {
+        await uploadPracticeRecording(sessionId, audioUri).catch(() => undefined);
+        if (audioAnalysis) {
+          await savePronunciationFeedback(sessionId, audioAnalysis.feedback, audioAnalysis.score).catch(() => undefined);
         }
       }
       const feedbackTranscript = analyzedTranscript || audioAnalysis?.transcribed_text || '';

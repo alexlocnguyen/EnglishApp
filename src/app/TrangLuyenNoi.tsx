@@ -44,7 +44,7 @@ export default function SpeakingScreen() {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const patternColumns = Math.max(8, Math.ceil(Math.min(viewportWidth, 650) / 34));
   const patternRows = Math.ceil(viewportHeight / 34);
-  const params = useLocalSearchParams<{ topic?: string; prompt?: string }>();
+  const params = useLocalSearchParams<{ topic?: string; prompt?: string; lessonId?: string }>();
   const topic = Array.isArray(params.topic) ? params.topic[0] : params.topic;
   const prompt = Array.isArray(params.prompt) ? params.prompt[0] : params.prompt;
   const preRollChunks = useRef<Uint8Array[]>([]);
@@ -55,6 +55,7 @@ export default function SpeakingScreen() {
   const utteranceSampleRate = useRef(16000);
   const utteranceChannels = useRef(1);
   const turnId = useRef(0);
+  const audioSegments = useRef<Record<string, string>>({});
   const turnsRef = useRef<LiveTurnItem[]>([]);
   const processingQueue = useRef<Promise<void>>(Promise.resolve());
   const submitSegment = useRef<(chunks: Uint8Array[], sampleRate: number, channels: number) => void>(() => undefined);
@@ -271,6 +272,7 @@ export default function SpeakingScreen() {
         if (!mounted.current) return;
         try {
           const audioBase64 = pcmChunksToWavBase64(chunks, sampleRate, channels);
+          audioSegments.current[id] = audioBase64;
           const result = await processLiveVoiceTurn(audioBase64, topic ?? 'Luyện nói tự do');
           if (!mounted.current) return;
           if (!result.transcript) return;
@@ -452,12 +454,13 @@ export default function SpeakingScreen() {
       await savePracticeSession({
         id: sessionId,
         topic: topic ?? 'Luyện nói tự do',
+        ...(params.lessonId ? { lessonId: Number(params.lessonId) } : {}),
         createdAt: new Date().toISOString(),
         durationSeconds: elapsedSeconds,
         transcript,
         turns: turnsRef.current
           .filter((turn) => turn.status === 'done' && turn.transcript)
-          .map(({ transcript: userText, translation: userTranslation, reply, suggestions, feedback, pronunciationFeedback, hasAudio }) => ({
+          .map(({ id, transcript: userText, translation: userTranslation, reply, suggestions, feedback, pronunciationFeedback, hasAudio }) => ({
             transcript: userText,
             translation: userTranslation,
             reply,
@@ -465,6 +468,7 @@ export default function SpeakingScreen() {
             feedback,
             pronunciationFeedback,
             hasAudio,
+            ...(audioSegments.current[id] ? { audioBase64: audioSegments.current[id] } : {}),
           })),
       });
       router.replace({

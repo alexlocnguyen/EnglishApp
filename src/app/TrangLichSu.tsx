@@ -3,6 +3,7 @@ import { useFocusEffect, router } from 'expo-router';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { PageFrame, pageStyles, palette } from '../components/PageFrame';
 import { getPracticeSessions, type PracticeSession } from '../services/practice-history';
+import { getLearningProgress, type LearningProgress } from '../services/learning-api';
 
 function sessionDate(value: string): string {
   return new Intl.DateTimeFormat('vi-VN', {
@@ -20,17 +21,19 @@ export default function HistoryScreen() {
   const [sessions, setSessions] = useState<PracticeSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [learningProgress, setLearningProgress] = useState<LearningProgress | null>(null);
 
   useFocusEffect(useCallback(() => {
     let active = true;
     setLoading(true);
-    void getPracticeSessions()
-      .then((items) => { if (active) setSessions(items); })
+    void Promise.all([getPracticeSessions(), getLearningProgress().catch(() => null)])
+      .then(([items, progress]) => { if (active) { setSessions(items); setLearningProgress(progress); } })
       .catch(() => { if (active) setLoadError('Chưa tải được lịch sử. Hãy thử mở lại trang.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []));
 
+  // eslint-disable-next-line react-hooks/purity -- this is a read-only timestamp for the 7-day display window.
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const thisWeek = sessions.filter((session) => new Date(session.createdAt).getTime() >= weekAgo);
   const totalMinutes = thisWeek.reduce((total, session) => total + Math.round(session.durationSeconds / 60), 0);
@@ -38,7 +41,7 @@ export default function HistoryScreen() {
   return (
     <PageFrame title="Lịch sử luyện tập" subtitle="Những cuộc hội thoại của bạn">
       <Text style={pageStyles.heading}>Tiến trình của bạn</Text>
-      <Text style={pageStyles.paragraph}>Mỗi buổi luyện được lưu trên thiết bị để bạn xem lại và ôn đúng phần cần cải thiện.</Text>
+      <Text style={pageStyles.paragraph}>Lịch sử và tiến độ được đồng bộ với tài khoản khi backend PostgreSQL khả dụng.</Text>
 
       <View style={[pageStyles.card, { backgroundColor: '#A8D65A16', flexDirection: 'row', gap: 24 }]}>
         <View>
@@ -49,6 +52,12 @@ export default function HistoryScreen() {
           <Text style={pageStyles.cardTitle}>TỔNG SỐ BUỔI</Text>
           <Text style={pageStyles.bodyText}>{sessions.length}</Text>
         </View>
+      </View>
+
+      <View style={pageStyles.card}>
+        <Text style={pageStyles.cardTitle}>TIẾN ĐỘ CHƯƠNG TRÌNH</Text>
+        <Text style={pageStyles.bodyText}>{learningProgress ? `${learningProgress.completed_lesson_count}/${learningProgress.total_lesson_count} bài học hoàn thành · ${learningProgress.streak_days} ngày liên tục` : 'Đăng nhập và kết nối PostgreSQL để xem tiến độ đồng bộ.'}</Text>
+        {learningProgress ? <Text style={pageStyles.secondaryText}>Tổng thời gian luyện: {learningProgress.total_practice_minutes} phút · {learningProgress.sessions_last_7_days} buổi trong 7 ngày qua</Text> : null}
       </View>
 
       {loading ? (

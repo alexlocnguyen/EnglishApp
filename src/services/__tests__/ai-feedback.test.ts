@@ -19,7 +19,12 @@ describe('AI speaking feedback service', () => {
     return jest.requireActual<typeof import('../ai-feedback')>('../ai-feedback');
   }
 
+  function mockUnauthenticatedSession() {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'AUTH_SESSION_REQUIRED' }, 401));
+  }
+
   test('normalizes a successful backend feedback response', async () => {
+    mockUnauthenticatedSession();
     fetchMock.mockResolvedValueOnce(jsonResponse({
       summary: 'Good progress.',
       feedback: [{ title: 'Grammar', detail: 'Use the past tense.', score: 85 }],
@@ -37,6 +42,7 @@ describe('AI speaking feedback service', () => {
   });
 
   test('rejects malformed feedback instead of returning an empty result', async () => {
+    mockUnauthenticatedSession();
     fetchMock.mockResolvedValueOnce(jsonResponse({ summary: 'No criteria.' }));
     const { getAiSpeakingFeedback } = loadService();
 
@@ -45,6 +51,7 @@ describe('AI speaking feedback service', () => {
   });
 
   test('shows the backend validation detail on request failure', async () => {
+    mockUnauthenticatedSession();
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'Transcript is required.' }, 422));
     const { getAiSpeakingFeedback } = loadService();
 

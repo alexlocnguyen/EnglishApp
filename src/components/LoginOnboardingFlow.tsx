@@ -159,9 +159,13 @@ export function LoginOnboardingFlow({ visible, onClose, onFinish, onAuthenticate
 
     setAuthBusy(true);
     try {
-      if (isRegistering) await authService.register(email, password, displayName);
-      else await authService.login(email, password);
-      chooseProvider('Email');
+      if (isRegistering) {
+        await authService.register(email, password, displayName);
+        chooseProvider('Email');
+      } else {
+        await authService.login(email, password);
+        onFinish('Email', initialAnswers);
+      }
     } catch (error) {
       setAuthError(authService.getErrorMessage(error));
     } finally {

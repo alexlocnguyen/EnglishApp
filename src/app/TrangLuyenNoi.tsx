@@ -20,7 +20,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getAiSpeechUrl, processLiveVoiceTurn, processTextVoiceTurn, processWebAudioTurn, translateAiSpeech, type LiveVoiceTurn } from '../services/backend-ai';
+import { getAiSpeechPath, getAiSpeechUrl, processLiveVoiceTurn, processTextVoiceTurn, processWebAudioTurn, translateAiSpeech, type LiveVoiceTurn } from '../services/backend-ai';
+import { getApiAuthHeaders, requestApiResponse } from '../services/bff-auth';
 import { pcmChunksToWavBase64 } from '../services/live-audio';
 import { savePracticeSession } from '../services/practice-history';
 
@@ -489,23 +490,14 @@ export default function SpeakingScreen() {
     }
   }
 
-  async function getSpeechAudioSource(text: string): Promise<string> {
+  async function getSpeechAudioSource(text: string): Promise<{ uri: string; headers?: Record<string, string> }> {
     const uri = getAiSpeechUrl(text);
-    if (Platform.OS !== 'web') return uri;
+    if (Platform.OS !== 'web') return { uri, headers: await getApiAuthHeaders() };
 
-    let response: Response;
-    try {
-      response = await fetch(uri);
-    } catch {
-      throw new Error('Không kết nối được backend Kokoro. Hãy kiểm tra backend đang chạy tại cổng 8000.');
-    }
-    if (!response.ok) {
-      const payload: unknown = await response.json().catch(() => null);
-      const detail = typeof payload === 'object' && payload !== null && 'detail' in payload && typeof payload.detail === 'string'
-        ? payload.detail
-        : `Backend Kokoro trả lỗi HTTP ${response.status}.`;
-      throw new Error(detail);
-    }
+    const response = await requestApiResponse(getAiSpeechPath(text), {}, {
+      networkMessage: 'Không kết nối được backend Kokoro. Hãy kiểm tra backend đang chạy tại cổng 8000.',
+      httpErrorMessage: 'Backend Kokoro trả lỗi',
+    });
 
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.toLowerCase().startsWith('audio/')) {
@@ -517,15 +509,16 @@ export default function SpeakingScreen() {
     const objectUrl = URL.createObjectURL(audioBlob);
     if (webSpeechObjectUrl.current) URL.revokeObjectURL(webSpeechObjectUrl.current);
     webSpeechObjectUrl.current = objectUrl;
-    return objectUrl;
+    return { uri: objectUrl };
   }
 
   async function playAiSpeech(text: string) {
     try {
-      const uri = await getSpeechAudioSource(text);
+      const source = await getSpeechAudioSource(text);
+      const uri = source.uri;
       pendingSpeechFallback.current = text;
       if (speechAudioUri !== uri) {
-        speechPlayer.replace({ uri });
+        speechPlayer.replace(source);
         setSpeechAudioUri(uri);
       } else {
         await speechPlayer.seekTo(0);

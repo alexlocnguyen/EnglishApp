@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { ApiServiceError } from './api-errors';
 import { requestLearningApi } from './bff-auth';
 
 const REMINDER_KEY = 'elevate.reminder.settings.v1';
@@ -12,6 +13,19 @@ export type CatalogVocabulary = { vocabulary_id: number; lesson_id: number; word
 export type LearningCatalog = { topics: Topic[]; lessons: Lesson[]; vocabulary: CatalogVocabulary[] };
 export type LearningProgress = { session_count: number; total_practice_minutes: number; last_active_at: string | null; sessions_last_7_days: number; completed_lesson_count: number; total_lesson_count: number; streak_days: number };
 export type ReminderSettings = { enabled: boolean; local_time: string; weekdays: number[] };
+
+export function getLearningApiErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiServiceError)) return fallback;
+  if (error.message === 'DATABASE_NOT_CONFIGURED') return 'Backend chưa cấu hình DATABASE_URL trong backend/.env.';
+  if (error.message === 'DATABASE_UNAVAILABLE') return 'Backend không kết nối được PostgreSQL. Hãy kiểm tra máy chủ database và DATABASE_URL.';
+  if (error.message === 'AUTH_SESSION_REQUIRED' || error.message === 'AUTH_SESSION_EXPIRED' || error.status === 401) {
+    return 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Hãy đăng nhập lại.';
+  }
+  if (error.message === 'ADMIN_ROLE_REQUIRED' || error.status === 403) {
+    return 'Tài khoản chưa có quyền quản trị. Hãy thêm email vào INITIAL_ADMIN_EMAILS rồi đăng nhập lại.';
+  }
+  return fallback;
+}
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldPlaySound: false, shouldSetBadge: false, shouldShowBanner: true, shouldShowList: true }),

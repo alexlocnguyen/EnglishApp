@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { router, useFocusEffect, type Href } from 'expo-router';
 import { PageFrame, pageStyles, palette } from '../components/PageFrame';
-import { completeLesson, getLearningCatalog, getLessonProgress, saveVocabulary, type LearningCatalog } from '../services/learning-api';
+import { completeLesson, getLearningApiErrorMessage, getLearningCatalog, getLessonProgress, saveVocabulary, type LearningCatalog } from '../services/learning-api';
 
 export default function LessonsScreen() {
   const [catalog, setCatalog] = useState<LearningCatalog | null>(null);
@@ -17,7 +17,7 @@ export default function LessonsScreen() {
     setError('');
     void Promise.all([getLearningCatalog(), getLessonProgress()])
       .then(([nextCatalog, lessonProgress]) => { setCatalog(nextCatalog); setCompleted(lessonProgress.filter((item) => item.status === 'completed').map((item) => item.lesson_id)); })
-      .catch(() => setError('Chưa tải được chương trình học. Hãy kiểm tra đăng nhập và cấu hình DATABASE_URL cho backend.'))
+      .catch((cause: unknown) => setError(getLearningApiErrorMessage(cause, 'Chưa tải được chương trình học. Hãy kiểm tra backend và thử lại.')))
       .finally(() => setLoading(false));
   }, []);
 

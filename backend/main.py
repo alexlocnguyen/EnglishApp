@@ -15,17 +15,17 @@ from functools import lru_cache
 from typing import Any, Literal
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.concurrency import run_in_threadpool
 try:
-    from .auth_bff import router as auth_router
+    from .auth_bff import current_user, router as auth_router
     from .learning_api import router as learning_router
 except ImportError:
-    from auth_bff import router as auth_router
+    from auth_bff import current_user, router as auth_router
     from learning_api import router as learning_router
 
 
@@ -73,6 +73,7 @@ logger.addHandler(_log_handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
 app = FastAPI(title="Elevate English AI API", version="1.0.0")
+ai_router = APIRouter(prefix="/api", tags=["AI"], dependencies=[Depends(current_user)])
 app.include_router(auth_router)
 app.include_router(learning_router)
 app.add_middleware(
@@ -375,7 +376,7 @@ async def health() -> dict[str, Any]:
     }
 
 
-@app.post("/api/voice-turn")
+@ai_router.post("/voice-turn")
 async def voice_turn(request: VoiceTurnRequest) -> dict[str, Any]:
     """Transcribe an audio turn and generate a conversational reply and suggestions."""
     audio = decode_audio(request.audio_base64)
@@ -420,7 +421,7 @@ Return ONLY JSON with keys transcript, translation, reply, suggestions (array of
     }
 
 
-@app.post("/api/chat-turn")
+@ai_router.post("/chat-turn")
 async def chat_turn(request: ChatTurnRequest) -> dict[str, Any]:
     """Generate a conversational response for a typed learner message."""
     prompt = f"""You are a friendly, patient English conversation partner for a Vietnamese learner.
@@ -439,7 +440,7 @@ Return ONLY JSON with keys transcript, translation, reply, suggestions (array of
     }
 
 
-@app.post("/api/ai/speaking-feedback")
+@ai_router.post("/ai/speaking-feedback")
 async def speaking_feedback(request: FeedbackRequest) -> dict[str, Any]:
     """Return validated grammar and actionable feedback for a practice transcript."""
     prompt = f"""Evaluate this English practice transcript for a Vietnamese learner.
@@ -539,7 +540,7 @@ def _minhqnd_vietnamese_definition(entry: dict[str, Any]) -> tuple[str, str] | N
     return "; ".join(definitions[:4]), example
 
 
-@app.post("/api/ai/topic-vocabulary")
+@ai_router.post("/ai/topic-vocabulary")
 async def topic_vocabulary(request: VocabularyRequest) -> dict[str, Any]:
     """Return topic vocabulary candidates verified against the minhqnd dictionary."""
     prompt = f"""Choose useful vocabulary for a Vietnamese learner based on this English practice.
@@ -603,7 +604,7 @@ Return only the requested structured data."""
     return {"level": _string(candidates.get("level"), "A2"), "verbs": validated_verbs, "phrase": verified_phrase}
 
 
-@app.post("/api/translate")
+@ai_router.post("/translate")
 async def translate(request: TextRequest) -> dict[str, str]:
     """Translate English text into natural Vietnamese."""
     prompt = "Translate the following English text to natural Vietnamese. Return only the translation, preserving meaning and tone: " + request.text
@@ -611,7 +612,7 @@ async def translate(request: TextRequest) -> dict[str, str]:
     return {"translation": _json_text(response)}
 
 
-@app.post("/api/analyze")
+@ai_router.post("/analyze")
 async def analyze_audio(
     file: UploadFile = File(...),
     target_sentence: str = Form(default="", max_length=1000),
@@ -678,7 +679,7 @@ Transcribe only English speech that is actually audible. Give an overall, approx
     }
 
 
-@app.get("/api/speech")
+@ai_router.get("/speech")
 async def speech(text: str = Query(min_length=1, max_length=500)) -> Response:
     """Synthesize a short English sentence to WAV audio with Kokoro."""
     try:
@@ -691,3 +692,6 @@ async def speech(text: str = Query(min_length=1, max_length=500)) -> Response:
             detail="Kokoro chưa sẵn sàng. Hãy cài requirements, cài espeak-ng và kiểm tra log backend.",
         ) from exc
     return Response(content=audio_bytes, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+
+
+app.include_router(ai_router)

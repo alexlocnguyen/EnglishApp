@@ -1,5 +1,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { ApiServiceError } from './api-errors';
+import { requestApi } from './bff-auth';
 
 export type BackendAnalyzeResult = {
   filename: string;
@@ -68,12 +70,16 @@ function apiUrl(path: string): string {
     const host = getConfiguredApiHost();
     if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
       if (!getExpoLanApiBaseUrl()) {
-        throw new Error('Điện thoại không thể kết nối backend qua localhost. Hãy mở Expo trên mạng Wi-Fi và chạy backend trên máy tính với host 0.0.0.0.');
+        throw new ApiServiceError('Điện thoại không thể kết nối backend qua localhost. Hãy mở Expo trên mạng Wi-Fi và chạy backend trên máy tính với host 0.0.0.0.', 'configuration');
       }
     }
   }
-  if (!API_BASE_URL) throw new Error('Chưa cấu hình EXPO_PUBLIC_API_URL để kết nối backend AI.');
+  if (!API_BASE_URL) throw new ApiServiceError('Chưa cấu hình EXPO_PUBLIC_API_URL để kết nối backend AI.', 'configuration');
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function apiPath(path: string): string {
+  return path.startsWith('/') ? path : `/${path}`;
 }
 
 export async function analyzeSpeakingAudio(uri: string, targetSentence: string): Promise<BackendAnalyzeResult> {
@@ -88,28 +94,22 @@ export async function analyzeSpeakingAudio(uri: string, targetSentence: string):
     form.append('file', { uri, name: 'speaking.m4a', type: 'audio/mp4' } as unknown as Blob);
   }
 
-  let response: Response;
-  try {
-    response = await fetch(apiUrl(ANALYZE_PATH), { method: 'POST', headers: { Accept: 'application/json' }, body: form });
-  } catch {
-    throw new Error('Không thể kết nối backend. Hãy kiểm tra backend đang chạy và địa chỉ API.');
-  }
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail = typeof payload === 'object' && payload !== null && 'detail' in payload && typeof payload.detail === 'string'
-      ? payload.detail
-      : `Backend phân tích audio bị lỗi (${response.status}).`;
-    throw new Error(detail);
-  }
+  const payload = await requestApi<unknown>(apiPath(ANALYZE_PATH), {
+    method: 'POST', headers: { Accept: 'application/json' }, body: form,
+  }, {
+    networkMessage: 'Không thể kết nối backend. Hãy kiểm tra backend đang chạy và địa chỉ API.',
+    httpErrorMessage: 'Backend phân tích audio bị lỗi',
+    invalidResponseMessage: 'Backend trả về kết quả phân tích không đúng định dạng.',
+  });
   if (typeof payload !== 'object' || payload === null || !('transcribed_text' in payload)) {
-    throw new Error('Backend trả về kết quả phân tích không đúng định dạng.');
+    throw new ApiServiceError('Backend trả về kết quả phân tích không đúng định dạng.', 'invalid-response');
   }
   return payload as BackendAnalyzeResult;
 }
 
 function parseVoiceTurn(payload: unknown): LiveVoiceTurn {
   if (typeof payload !== 'object' || payload === null || !('transcript' in payload)) {
-    throw new Error('Backend trả về lượt nói không đúng định dạng.');
+    throw new ApiServiceError('Backend trả về lượt nói không đúng định dạng.', 'invalid-response');
   }
   const data = payload as Record<string, unknown>;
   return {
@@ -123,45 +123,28 @@ function parseVoiceTurn(payload: unknown): LiveVoiceTurn {
 }
 
 export async function processLiveVoiceTurn(audioBase64: string, topic: string, mimeType = 'audio/wav'): Promise<LiveVoiceTurn> {
-  let response: Response;
-  try {
-    response = await fetch(apiUrl(VOICE_TURN_PATH), {
+  const payload = await requestApi<unknown>(apiPath(VOICE_TURN_PATH), {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ audio_base64: audioBase64, mime_type: mimeType.split(';')[0], topic }),
+    }, {
+      networkMessage: 'Không thể gửi câu vừa nói tới backend. Kiểm tra backend và mạng Wi-Fi.',
+      httpErrorMessage: 'Backend xử lý lượt nói bị lỗi',
+      invalidResponseMessage: 'Backend trả về lượt nói không đúng định dạng.',
     });
-  } catch {
-    throw new Error('Không thể gửi câu vừa nói tới backend. Kiểm tra backend và mạng Wi-Fi.');
-  }
-
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail = typeof payload === 'object' && payload !== null && 'detail' in payload && typeof payload.detail === 'string'
-      ? payload.detail
-      : `Backend xử lý lượt nói bị lỗi (${response.status}).`;
-    throw new Error(detail);
-  }
   return { ...parseVoiceTurn(payload), hasAudio: true };
 }
 
 export async function processTextVoiceTurn(message: string, topic: string): Promise<LiveVoiceTurn> {
-  let response: Response;
-  try {
-    response = await fetch(apiUrl(CHAT_TURN_PATH), {
+  const payload = await requestApi<unknown>(apiPath(CHAT_TURN_PATH), {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, topic }),
+    }, {
+      networkMessage: 'Không thể kết nối backend. Hãy kiểm tra mạng và địa chỉ API.',
+      httpErrorMessage: 'Backend xử lý tin nhắn bị lỗi',
+      invalidResponseMessage: 'Backend trả về lượt nói không đúng định dạng.',
     });
-  } catch {
-    throw new Error('Không thể kết nối backend. Hãy kiểm tra mạng và địa chỉ API.');
-  }
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail = typeof payload === 'object' && payload !== null && 'detail' in payload && typeof payload.detail === 'string'
-      ? payload.detail
-      : `Backend xử lý tin nhắn bị lỗi (${response.status}).`;
-    throw new Error(detail);
-  }
   return { ...parseVoiceTurn(payload), hasAudio: false };
 }
 
@@ -177,56 +160,43 @@ export async function processWebAudioTurn(uri: string, topic: string): Promise<L
   return processLiveVoiceTurn(dataUrl, topic, mimeType);
 }
 
+export function getAiSpeechPath(text: string): string {
+  return `${apiPath(SPEECH_PATH)}?text=${encodeURIComponent(text.slice(0, 200))}`;
+}
+
 export function getAiSpeechUrl(text: string): string {
   return `${apiUrl(SPEECH_PATH)}?text=${encodeURIComponent(text.slice(0, 200))}`;
 }
 
 export async function translateAiSpeech(text: string, signal?: AbortSignal): Promise<string> {
-  let response: Response;
-  try {
-    response = await fetch(apiUrl(TRANSLATE_PATH), {
+  const payload = await requestApi<unknown>(apiPath(TRANSLATE_PATH), {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
       signal,
+    }, {
+      networkMessage: 'Không thể kết nối backend để dịch câu AI.',
+      httpErrorMessage: 'Backend dịch trả về lỗi',
+      invalidResponseMessage: 'Backend trả về bản dịch không đúng định dạng.',
     });
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw error;
-    throw new Error('Không thể kết nối backend để dịch câu AI.');
-  }
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail = typeof payload === 'object' && payload !== null && 'detail' in payload && typeof payload.detail === 'string'
-      ? payload.detail
-      : `Backend dịch trả về lỗi (${response.status}).`;
-    throw new Error(detail);
-  }
   if (typeof payload !== 'object' || payload === null || !('translation' in payload) || typeof payload.translation !== 'string') {
-    throw new Error('Backend trả về bản dịch không đúng định dạng.');
+    throw new ApiServiceError('Backend trả về bản dịch không đúng định dạng.', 'invalid-response');
   }
   return payload.translation;
 }
 
 export async function getTopicVocabulary(topic: string, transcript: string): Promise<TopicVocabulary> {
-  let response: Response;
-  try {
-    response = await fetch(apiUrl('/api/ai/topic-vocabulary'), {
+  const payload = await requestApi<unknown>('/api/ai/topic-vocabulary', {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ topic, transcript }),
+    }, {
+      networkMessage: 'Không thể kết nối backend để lấy từ vựng.',
+      httpErrorMessage: 'Backend lấy từ vựng bị lỗi',
+      invalidResponseMessage: 'Backend trả về từ vựng không đúng định dạng.',
     });
-  } catch {
-    throw new Error('Không thể kết nối backend để lấy từ vựng.');
-  }
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail = typeof payload === 'object' && payload !== null && 'detail' in payload && typeof payload.detail === 'string'
-      ? payload.detail
-      : `Backend lấy từ vựng bị lỗi (${response.status}).`;
-    throw new Error(detail);
-  }
   if (typeof payload !== 'object' || payload === null || !('verbs' in payload) || !('phrase' in payload)) {
-    throw new Error('Backend trả về từ vựng không đúng định dạng.');
+    throw new ApiServiceError('Backend trả về từ vựng không đúng định dạng.', 'invalid-response');
   }
   return payload as TopicVocabulary;
 }

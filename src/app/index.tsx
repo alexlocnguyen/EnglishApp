@@ -6,6 +6,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LoginOnboardingFlow, type LoginProvider, type SurveyAnswers } from '@/components/LoginOnboardingFlow';
 import { authService } from '@/services/auth-service';
+import { getCurrentLearningUser } from '@/services/learning-api';
 import type { AuthUser } from '@/services/auth-provider';
 
 const COLORS = {
@@ -21,6 +22,7 @@ type MenuItem = {
   width: `${number}%`;
   color: string;
   href?: Href;
+  adminOnly?: boolean;
 };
 
 const MENU_ITEMS: MenuItem[] = [
@@ -33,7 +35,7 @@ const MENU_ITEMS: MenuItem[] = [
   { label: 'Lịch sử', width: '88%', color: COLORS.secondary, href: '/TrangLichSu' as Href },
   { label: 'Chương trình học', width: '82%', color: COLORS.secondary, href: '/TrangBaiHoc' as Href },
   { label: 'Ôn tập', width: '76%', color: COLORS.secondary, href: '/TrangTuVung' as Href },
-  { label: 'Quản trị', width: '70%', color: COLORS.secondary, href: '/TrangQuanTri' as Href },
+  { label: 'Quản trị', width: '70%', color: COLORS.secondary, href: '/TrangQuanTri' as Href, adminOnly: true },
   { label: 'Cài đặt', width: '64%', color: COLORS.secondary, href: '/TrangCaiDat' as Href },
 ];
 
@@ -66,8 +68,29 @@ export default function HomeScreen() {
   const [profileView, setProfileView] = useState<'overview' | 'personal' | null>(null);
   const [profileAnswers, setProfileAnswers] = useState<SurveyAnswers>({});
   const [signedInUser, setSignedInUser] = useState<AuthUser | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  useEffect(() => authService.observeUser(setSignedInUser), []);
+  useEffect(() => {
+    let roleRequest = 0;
+    const unsubscribe = authService.observeUser((user) => {
+      setSignedInUser(user);
+      setIsAdmin(false);
+      const currentRequest = ++roleRequest;
+      if (!user) return;
+
+      void getCurrentLearningUser()
+        .then((profile) => {
+          if (roleRequest === currentRequest) setIsAdmin(profile.roles.includes('admin'));
+        })
+        .catch(() => {
+          if (roleRequest === currentRequest) setIsAdmin(false);
+        });
+    });
+    return () => {
+      roleRequest += 1;
+      unsubscribe();
+    };
+  }, []);
 
   function markAuthenticated(_provider: LoginProvider, answers: SurveyAnswers) {
     setProfileAnswers(answers);
@@ -119,7 +142,7 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.menu}>
-            {MENU_ITEMS.map((item) => (
+            {MENU_ITEMS.filter((item) => !item.adminOnly || isAdmin).map((item) => (
               <SlantedMenuButton key={item.label} {...item} />
             ))}
           </View>

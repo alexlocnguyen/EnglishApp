@@ -1,14 +1,14 @@
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { ApiServiceError, requestJson } from './api-errors';
+import { ApiServiceError, requestJson, requestResponse, type ApiRequestOptions } from './api-errors';
 import type { AuthProvider, AuthUser } from './auth-provider';
 
 const SESSION_KEY = 'elevate.session';
 const configuredBaseUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/$/, '');
 
 function getApiBaseUrl(): string {
-  if (!configuredBaseUrl) throw new Error('Chưa cấu hình địa chỉ backend trong EXPO_PUBLIC_API_URL.');
+  if (!configuredBaseUrl) throw new ApiServiceError('Chưa cấu hình địa chỉ backend trong EXPO_PUBLIC_API_URL.', 'configuration');
   if (Platform.OS === 'web' || !__DEV__) return configuredBaseUrl;
 
   try {
@@ -57,11 +57,14 @@ async function request(path: string, body?: Record<string, string>, method = 'PO
   return data;
 }
 
-export async function requestLearningApi<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function ensureNativeSession() {
   if (Platform.OS !== 'web' && !sessionToken) {
     restorePromise ??= restoreSession();
     await restorePromise;
   }
+}
+
+function apiRequestHeaders(init: RequestInit): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'X-Elevate-Client': Platform.OS === 'web' ? 'web' : 'native',
@@ -69,24 +72,47 @@ export async function requestLearningApi<T>(path: string, init: RequestInit = {}
     ...(init.headers as Record<string, string> | undefined),
   };
   if (Platform.OS !== 'web' && sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
-  return requestJson<T>(`${getApiBaseUrl()}/api/learning${path}`, {
+  return headers;
+}
+
+export async function requestApi<T>(path: string, init: RequestInit = {}, options: ApiRequestOptions = {}): Promise<T> {
+  await ensureNativeSession();
+  return requestJson<T>(`${getApiBaseUrl()}${path}`, {
     ...init,
-    headers,
+    headers: apiRequestHeaders(init),
     credentials: Platform.OS === 'web' ? 'include' : 'omit',
-  }, { networkMessage: 'NETWORK_REQUEST_FAILED', httpErrorMessage: 'LEARNING_REQUEST_FAILED' });
+  }, { networkMessage: 'NETWORK_REQUEST_FAILED', httpErrorMessage: 'API_REQUEST_FAILED', ...options });
+}
+
+export async function requestApiResponse(path: string, init: RequestInit = {}, options: ApiRequestOptions = {}): Promise<Response> {
+  await ensureNativeSession();
+  return requestResponse(`${getApiBaseUrl()}${path}`, {
+    ...init,
+    headers: apiRequestHeaders(init),
+    credentials: Platform.OS === 'web' ? 'include' : 'omit',
+  }, { networkMessage: 'NETWORK_REQUEST_FAILED', httpErrorMessage: 'API_REQUEST_FAILED', ...options });
+}
+
+export async function getApiAuthHeaders(): Promise<Record<string, string>> {
+  await ensureNativeSession();
+  return Platform.OS !== 'web' && sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
+}
+
+export async function requestLearningApi<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return requestApi<T>(`/api/learning${path}`, init);
 }
 
 async function acceptSession(data: AuthResponse) {
-  if (!data.user) throw new Error('Backend không trả về thông tin tài khoản.');
+  if (!data.user) throw new ApiServiceError('Backend không trả về thông tin tài khoản.', 'invalid-response');
   if (Platform.OS !== 'web') {
-    if (!data.session_token) throw new Error('Backend không trả về mã phiên bảo mật.');
+    if (!data.session_token) throw new ApiServiceError('Backend không trả về mã phiên bảo mật.', 'invalid-response');
     sessionToken = data.session_token;
     try {
       await SecureStore.setItemAsync(SESSION_KEY, sessionToken);
     } catch {
       await request('/logout').catch(() => undefined);
       sessionToken = null;
-      throw new Error('SECURE_SESSION_STORAGE_FAILED');
+      throw new ApiServiceError('SECURE_SESSION_STORAGE_FAILED', 'client');
     }
   }
   generation += 1;

@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { PageFrame, pageStyles, palette } from '../components/PageFrame';
-import { createCatalogVocabulary, createLesson, createTopic, getAdminUsers, getCurrentLearningUser, getLearningCatalog, setUserRole, type AdminUser, type LearningCatalog } from '../services/learning-api';
+import { createCatalogVocabulary, createLesson, createTopic, getAdminUsers, getCurrentLearningUser, getLearningApiErrorMessage, getLearningCatalog, setUserRole, type AdminUser, type LearningCatalog } from '../services/learning-api';
 
 const inputStyle = { backgroundColor: '#FFFFFF12', borderColor: '#FFFFFF30', borderRadius: 10, borderWidth: 1, color: '#FFF', marginBottom: 8, paddingHorizontal: 12, paddingVertical: 10 } as const;
 
@@ -30,8 +30,8 @@ export default function AdminScreen() {
         setUsers(nextUsers);
       }
       setMessage(isAdmin ? '' : 'Tài khoản hiện tại chưa được cấp quyền quản trị.');
-    } catch {
-      setMessage('Không tải được dữ liệu quản trị. Hãy đăng nhập và kiểm tra cấu hình backend/database.');
+    } catch (cause: unknown) {
+      setMessage(getLearningApiErrorMessage(cause, 'Không tải được dữ liệu quản trị. Hãy kiểm tra backend/database.'));
     } finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { void load(); }, [load]));

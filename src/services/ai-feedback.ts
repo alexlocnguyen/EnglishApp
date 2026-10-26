@@ -1,4 +1,5 @@
-import { requestJson } from './api-errors';
+import { ApiServiceError } from './api-errors';
+import { requestApi } from './bff-auth';
 
 export type AiFeedbackItem = {
   title: string;
@@ -20,7 +21,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseFeedback(payload: unknown): AiSpeakingFeedback {
   const data = isRecord(payload) && isRecord(payload.data) ? payload.data : payload;
-  if (!isRecord(data)) throw new Error('Dữ liệu phản hồi từ AI không đúng định dạng.');
+  if (!isRecord(data)) throw new ApiServiceError('Dữ liệu phản hồi từ AI không đúng định dạng.', 'invalid-response');
 
   const rawItems = data.feedback ?? data.items ?? data.criteria;
   const feedback = Array.isArray(rawItems)
@@ -35,7 +36,7 @@ function parseFeedback(payload: unknown): AiSpeakingFeedback {
     : [];
 
   if (feedback.length === 0) {
-    throw new Error('AI chưa trả về nội dung nhận xét có thể sử dụng.');
+    throw new ApiServiceError('AI chưa trả về nội dung nhận xét có thể sử dụng.', 'invalid-response');
   }
 
   const summary = data.summary ?? data.overall_feedback ?? data.overallFeedback;
@@ -48,14 +49,14 @@ function parseFeedback(payload: unknown): AiSpeakingFeedback {
 /** Request structured grammar and improvement feedback for a completed practice transcript. */
 export async function getAiSpeakingFeedback(topic: string, transcript: string): Promise<AiSpeakingFeedback> {
   if (!topic.trim() || !transcript.trim()) {
-    throw new Error('Cần có chủ đề và nội dung buổi luyện tập để phân tích.');
+    throw new ApiServiceError('Cần có chủ đề và nội dung buổi luyện tập để phân tích.', 'client');
   }
   if (!API_BASE_URL) {
-    throw new Error('Chưa cấu hình EXPO_PUBLIC_API_URL để kết nối backend AI.');
+    throw new ApiServiceError('Chưa cấu hình EXPO_PUBLIC_API_URL để kết nối backend AI.', 'configuration');
   }
 
-  const payload = await requestJson<unknown>(
-    `${API_BASE_URL}${FEEDBACK_PATH.startsWith('/') ? FEEDBACK_PATH : `/${FEEDBACK_PATH}`}`,
+  const payload = await requestApi<unknown>(
+    FEEDBACK_PATH.startsWith('/') ? FEEDBACK_PATH : `/${FEEDBACK_PATH}`,
     {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },

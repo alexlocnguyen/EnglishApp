@@ -20,7 +20,7 @@ try:
 except ImportError:
     from auth_bff import current_user
 
-router = APIRouter(prefix="/api/learning", tags=["learning"])
+router = APIRouter(prefix="/api/learning", tags=["learning"], dependencies=[Depends(current_user)])
 
 
 class LearningSettings(BaseSettings):
